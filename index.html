@@ -352,7 +352,7 @@ function newGame(keepNames){
     winner:null, winReason:'', toastMsg:null,
     fx:[], fxPulses:[], muted:false, showReference:false, showDiscard:false,
     confirmEndTurn:false, turnStartGate:false, cellInfo:null, infoReveal:null,
-    net:{ mode:'local', role:null, localPlayer:1, roomCode:'', status:'idle', errorMsg:'', joinCode:'' },
+    net:{ mode:'local', role:null, localPlayer:1, roomCode:'', status:'idle', errorMsg:'', joinCode:'', setupOpen:false, playerName:'' },
   };
 }
 
@@ -445,6 +445,9 @@ function setupHostConnection(conn){
     if(!data || typeof data!=='object') return;
     if(data.type==='action' && data.payload){
       handleRemoteAction(data.payload);
+    } else if(data.type==='player-name'){
+      state.names[2] = sanitizeName(data.name);
+      render();
     }
   });
   conn.on('close', ()=>{
@@ -509,6 +512,7 @@ function joinRoom(code){
       netConn.on('open', ()=>{
         state.net.status = 'connected';
         state.net.errorMsg = '';
+        netConn.send({ type:'player-name', name: state.names[2] });
         toast('部屋に接続しました');
         render();
       });
@@ -1644,6 +1648,7 @@ function renderTitle(){
   const n2 = escapeHtml(state.names[2]||'');
   const net = state.net || {};
   const joinVal = escapeHtml(net.joinCode||'');
+  const onlineName = escapeHtml(net.playerName||'');
   let onlineBlock = '';
   if(net.mode==='online' && net.role==='host'){
     onlineBlock = `<div class="card-box" style="max-width:320px;width:100%;text-align:center;">
@@ -1661,21 +1666,31 @@ function renderTitle(){
       ${net.errorMsg?`<p style="color:var(--danger);font-size:.85rem;">${escapeHtml(net.errorMsg)}</p>`:''}
       <button class="btn ghost small" data-action="net-cancel" style="margin-top:8px;">キャンセル</button>
     </div>`;
-  } else {
-    onlineBlock = `<div class="name-form" style="margin-top:4px;">
+  } else if(net.setupOpen) {
+    onlineBlock = `<div class="card-box" style="max-width:320px;width:100%;text-align:left;">
+      <div class="section-title">オンライン対戦</div>
+      <div class="name-form" style="width:100%;margin-top:8px;">
       <div class="name-row">
-        <label class="muted tiny">ルームコードで入室</label>
+        <label>名前を入力</label>
+        <input class="p1-focus" type="text" maxlength="${MAX_NAME_LEN}" placeholder="名前を入力" value="${onlineName}" data-online-name="1" autocomplete="off" spellcheck="false">
+      </div>
+      <div class="name-row">
+        <label>コードを入力</label>
         <input type="text" maxlength="8" placeholder="例: AB12CD" value="${joinVal}" data-join-code="1" autocomplete="off" spellcheck="false" style="text-transform:uppercase;font-family:var(--font-mono);font-weight:700;letter-spacing:.08em;">
       </div>
       <div class="row" style="justify-content:center;gap:8px;flex-wrap:wrap;">
         <button class="btn primary" data-action="net-create">部屋を作る</button>
         <button class="btn" data-action="net-join">部屋に入る</button>
       </div>
-      <p class="name-hint">インターネット越しのオンライン対戦（最小版）。ホストがプレイヤー1、入室側がプレイヤー2です。</p>
+      <p class="name-hint">コードを空欄にして部屋を作ると、共有用のコードが発行されます。</p>
+      <button class="btn ghost small" data-action="close-online-setup">戻る</button>
+      </div>
     </div>`;
+  } else {
+    onlineBlock = `<button class="btn" data-action="open-online-setup">オンライン対戦</button>`;
   }
   return `<div class="title-screen"><div class="title-grid">${grid}</div>
-    <div><h1>手札全開示ゲーム</h1><p class="subtitle">1vs1 パス&amp;プレイ / オンライン(ルームコード)</p></div>
+    <div><h1>手札全開示ゲーム</h1><p class="subtitle">1vs1 パス&amp;プレイ / オンライン対戦</p></div>
     <p class="title-desc">盤面の一番奥、開始前に秘密で決めた1マス(的)を、相手より先に暴くか守り切るかで勝敗が決まる。手札は基本的に公開しながら進める、駒と罠の心理戦。</p>
     <div class="name-form">
       <div class="name-row">
@@ -2033,17 +2048,25 @@ app.addEventListener('click', e=>{
   const type = el.dataset.type;
 
   // ネット専用アクション（ローカルで処理）
+  if(action==='open-online-setup'){
+    state.net.setupOpen = true;
+    render();
+    return;
+  }
+  if(action==='close-online-setup'){
+    state.net.setupOpen = false;
+    render();
+    return;
+  }
   if(action==='net-create'){
-    document.querySelectorAll('[data-name-player]').forEach(inp=>{
-      state.names[parseInt(inp.dataset.namePlayer,10)] = sanitizeName(inp.value);
-    });
+    const inp = document.querySelector('[data-online-name]');
+    state.names[1] = sanitizeName(inp ? inp.value : state.net.playerName);
     createRoom();
     return;
   }
   if(action==='net-join'){
-    document.querySelectorAll('[data-name-player]').forEach(inp=>{
-      state.names[parseInt(inp.dataset.namePlayer,10)] = sanitizeName(inp.value);
-    });
+    const nameInp = document.querySelector('[data-online-name]');
+    state.names[2] = sanitizeName(nameInp ? nameInp.value : state.net.playerName);
     const inp = document.querySelector('[data-join-code]');
     const code = inp ? inp.value : (state.net && state.net.joinCode);
     joinRoom(code);
@@ -2217,6 +2240,12 @@ app.addEventListener('click', e=>{
 // タイトル画面の名前入力（再描画せず state だけ更新してフォーカスを維持）
 app.addEventListener('input', e=>{
   if(!state || state.phase!=='title') return;
+  const onlineNameInp = e.target.closest('[data-online-name]');
+  if(onlineNameInp){
+    state.net.playerName = sanitizeName(onlineNameInp.value);
+    if(onlineNameInp.value !== state.net.playerName) onlineNameInp.value = state.net.playerName;
+    return;
+  }
   const joinInp = e.target.closest('[data-join-code]');
   if(joinInp){
     state.net.joinCode = String(joinInp.value||'').toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,8);
