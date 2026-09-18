@@ -1487,15 +1487,66 @@ function endGameByDeckOut(){
 /* =========================================================
    RENDER
 ========================================================= */
+function onlineWaitInfo(){
+  // オンライン時、自分の操作番でなければ盤面を隠す
+  if(!isOnline() || state.net.status!=='connected') return null;
+  const me = myPlayer();
+  if(state.phase==='title' || state.phase==='gameover') return null;
+  if(state.phase==='coinflip-anim'){
+    return { title:'先攻・後攻を決定中', body:'少々お待ちください…' };
+  }
+  if(state.phase==='coinflip-result'){
+    if(isHost()) return null;
+    return { title:'先攻が決まりました', body:`先攻は ${ownerLabel(state.first)} です。ホストの進行をお待ちください。` };
+  }
+  if(state.phase==='hand-hide'){
+    if(state.handHider===me) return null;
+    return { title:'相手が手札を伏せています', body:`${ownerLabel(state.handHider)}が伏せ札を選んでいます。画面は隠しています。` };
+  }
+  if(state.phase==='target'){
+    if(state.targetPicker===me) return null;
+    return { title:'相手が的を選択中', body:`${ownerLabel(state.targetPicker)}が的のマスを選んでいます。画面は隠しています。` };
+  }
+  if(state.phase==='piece-place'){
+    if(state.piecePlacer===me) return null;
+    return { title:'相手が駒を配置中', body:`${ownerLabel(state.piecePlacer)}が駒を配置しています。画面は隠しています。` };
+  }
+  if(state.phase==='trap-gate'){
+    if(state.trapPlacer===me) return null;
+    return { title:'相手が罠を配置中', body:`${ownerLabel(state.trapPlacer)}が罠を配置しています。画面は隠しています。` };
+  }
+  if(state.phase==='main'){
+    // 自分宛の割り込み・情報公開は表示
+    if(state.infoReveal && state.infoReveal.owner===me) return null;
+    if(state.currentInterrupt && state.currentInterrupt.owner===me) return null;
+    if(state.active===me) return null;
+    return { title:`${ownerLabel(state.active)}のターンです`, body:'相手の操作が終わるまで画面を隠しています。しばらくお待ちください。' };
+  }
+  return null;
+}
+function renderOnlineWait(info){
+  return `<div class="gate">
+    <div class="gate-icon">🙈</div>
+    <p class="gate-msg">
+      <b class="${myPlayer()===1?'pill p1':'pill p2'}">${escapeHtml(ownerLabel(myPlayer()))}</b><br>
+      <b>${escapeHtml(info.title)}</b><br>
+      ${escapeHtml(info.body)}
+    </p>
+    <p class="muted tiny">相手の操作が終わると自動で切り替わります</p>
+  </div>`;
+}
 function render(){
-  // オンライン時は画面隠しゲートを自動スキップ
+  // オンライン時は画面隠しゲートを自動スキップ（自分の操作画面を直接表示）
   if(isOnline()){
     if(state.phase==='target' || state.phase==='trap-gate' || state.phase==='hand-hide') state.gateOpen = true;
     if(state.phase==='piece-place') state.handoffOpen = true;
     state.turnStartGate = false;
   }
   let html='';
-  switch(state.phase){
+  const wait = onlineWaitInfo();
+  if(wait){
+    html = renderOnlineWait(wait);
+  } else switch(state.phase){
     case 'title': html=renderTitle(); break;
     case 'coinflip-anim': html=renderCoinflipAnim(); break;
     case 'coinflip-result': html=renderCoinflipResult(); break;
